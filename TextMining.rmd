@@ -1,0 +1,444 @@
+---
+title: "Wahl2 Project Code"
+author: "Brenda Kwong, Yufei Li, Jingwei Liang, Ziqian Liao, Chelsea Lin, Michael Xu, Shenghua Zhu, Qingfeng Zou"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(cache = TRUE)
+```
+
+### Libraries used
+
+```{r, message = F}
+library(readxl)
+library(dplyr)
+library(ggplot2)
+library(sentimentr)
+library(lexicon)
+library(wordcloud)
+library(tidyr)
+library(tidytext)
+library(tm)
+library(corpus)
+library(xlsx)
+```
+
+### Read in data
+
+```{r}
+dat <- data.frame(read_excel("stats capstone - sci crit thnkg study data.xlsx"))
+
+dat <- dat %>%
+  select(q1 = question_one_open_end, q2= question_two_self_rating)
+```
+
+### Data Cleaning
+
+```{r}
+dat$q1[which(is.na(dat$q1))] <- "NA" # replace missing values with "NA"
+dat$q1 <- gsub('N/A|^NA', 'NA', dat$q1, ignore.case = T) # replace "N/A", "n/a", "na" with "NA"
+
+# function to abbreviate course names
+abbreviate_courses <- function(text){
+  text <- gsub('(chemistry|chem)\\s([0-9]+[a-z]{0,3})', 'CHEM\\2', text, ignore.case = T)
+  text <- gsub('\\s14(\\sseries)', ' CHEM14\\1', text, ignore.case = T)
+  text <- gsub('\\s14(a|b|c|d|bl|cl)', ' CHEM14\\1 ', text, ignore.case = T)
+  text <- gsub('math\\s([0-9]+[a-z]{0,3})', 'MATH\\1', text, ignore.case = T)
+  text <- gsub('(life\\s?science[s]?|ls|life\\s?sci)\\s([0-9]+[a-z]{0,3})', 'LS\\2', text, ignore.case = T)
+  text <- gsub('\\s(7|23)([a-z]{1,2})', ' LS\\1\\2', text, ignore.case = T)
+  text <- gsub('\\s7(\\sseries)', ' LS7\\1', text, ignore.case = T)
+  text <- gsub('physics\\s([0-9]+[a-z]{0,3})', 'PHYSICS\\1', text, ignore.case = T)
+  return(text)
+}
+
+dat$q1 <- abbreviate_courses(dat$q1)
+
+# convert q2 to factor and rename levels
+dat$q2 <- factor(dat$q2, labels = c("2", "1", "0"))
+# Reorder levels
+dat$q2 <- factor(dat$q2, levels = c("0", "1", "2"))
+
+# create 3 data frames, one for each level of q2
+dat0 <- dat %>% filter(q2 == 0)
+dat1 <- dat %>% filter(q2 == 1)
+dat2 <- dat %>% filter(q2 == 2)
+```
+
+```{r}
+# Save clean data to excel file
+
+# write.xlsx(dat, file = "wahl2_clean.xlsx", sheetName = "Sheet1", row.names = FALSE)
+```
+
+### EDA
+
+```{r}
+barplot(table(dat$q2), main = "Scientific Critical Thinking Rating", 
+        col = c("red3", "forestgreen", "dodgerblue"), ylab = "Frequency", xlab = "Rating")
+legend("topright", legend = c("HAS NOT IMPROVED", "IMPROVED SOME", "IMPROVED A LOT"), 
+       fill =  c("red3", "forestgreen", "dodgerblue"), cex = 0.8)
+```
+
+#### Further data cleaning for word frequency and word cloud analysis
+
+```{r, warning=F, message=F}
+corpus <- Corpus(VectorSource(dat$q1))
+corpus0 <- Corpus(VectorSource(dat0$q1))
+corpus1 <- Corpus(VectorSource(dat1$q1))
+corpus2 <- Corpus(VectorSource(dat2$q1))
+
+clean_corpus <- function(corpus){
+  
+  # stopwords
+  stopwords_v <- c(stopwords("en"), "scientific", "helped", "problem", "process", "solving", "also", "think", "thinking", "critical", "ucla", "ability", "engage", "inquiry", "analysis", "improve", "improved")
+  
+  corpus <- tm_map(corpus, content_transformer(tolower)) # Convert text to lower case
+  corpus <- tm_map(corpus, removeWords, stopwords_v) # Remove stopwords
+  corpus <- tm_map(corpus, removePunctuation) # Remove punctuation 
+  corpus <- tm_map(corpus, stripWhitespace) # Remove excess white space
+  corpus <- tm_map(corpus, stemDocument) # Stem text (reduce words to root form)
+  
+  return(corpus)
+}
+
+corpus <- clean_corpus(corpus)
+corpus0 <- clean_corpus(corpus0)
+corpus1 <- clean_corpus(corpus1)
+corpus2 <- clean_corpus(corpus2)
+```
+
+#### Unigrams
+
+```{r}
+# Function returns sorted data frame of word frequencies 
+freq_df <- function(corpus){
+  dtm <- TermDocumentMatrix(corpus)
+  dtm_m <- as.matrix(dtm)
+  dtm_v <- sort(rowSums(dtm_m),decreasing=TRUE)
+  return(data.frame(word = names(dtm_v),freq=dtm_v))
+}
+
+dtm_d <- freq_df(corpus)
+dtm0_d <- freq_df(corpus0)
+dtm1_d <- freq_df(corpus1)
+dtm2_d <- freq_df(corpus2)
+
+barplot(dtm0_d[1:10,]$freq, las = 2, names.arg = dtm0_d[1:10,]$word, col ="cornflowerblue", 
+        main ="Top 10 most frequent words for HAS NOT IMPROVED group", ylab = "Word frequencies")
+
+barplot(dtm1_d[1:10,]$freq, las = 2, names.arg = dtm1_d[1:10,]$word, col ="cornflowerblue", 
+        main ="Top 10 most frequent words for IMPROVED SOME group", ylab = "Word frequencies")
+
+barplot(dtm2_d[1:10,]$freq, las = 2, names.arg = dtm2_d[1:10,]$word, col ="cornflowerblue",
+        main ="Top 10 most frequent words for IMPROVED A LOT group", ylab = "Word frequencies")
+```
+
+#### Word Clouds
+
+```{r}
+set.seed(7)
+
+# word cloud for HAS NOT IMPROVED group
+wordcloud(words = dtm0_d$word, freq = dtm0_d$freq, max.words = 100, random.order = FALSE, 
+          rot.per = 0.40, colors = brewer.pal(8, "Dark2"))
+```
+
+```{r}
+# word cloud for IMPROVED SOME group
+wordcloud(words = dtm1_d$word, freq = dtm1_d$freq, max.words = 100, random.order = FALSE, 
+          rot.per = 0.40, colors = brewer.pal(8, "Dark2"))
+```
+
+```{r}
+# word cloud for IMPROVED A LOT group
+wordcloud(words = dtm2_d$word, freq = dtm2_d$freq, max.words = 100, random.order = FALSE, 
+          rot.per = 0.40, colors = brewer.pal(8, "Dark2"))
+```
+
+#### Bigrams
+
+```{r}
+bigram0_dat <- term_stats(corpus0, ngrams = 2)
+bigram1_dat <- term_stats(corpus1, ngrams = 2)
+bigram2_dat <- term_stats(corpus2, ngrams = 2) 
+
+ggplot(bigram0_dat[1:10,], aes(x=reorder(term, support), y = support, fill = reorder(term, support))) + 
+  geom_bar(stat = "identity") + 
+  coord_flip() +
+  theme(legend.position = "none") +
+  labs(title = "Top 10 most frequent bigrams for HAS NOT IMPROVED group", x = "Bigram", y = "Support")
+
+ggplot(bigram1_dat[1:10,], aes(x=reorder(term, support), y = support, fill = reorder(term, support))) + 
+  geom_bar(stat = "identity") + 
+  coord_flip() +
+  theme(legend.position = "none") +
+  labs(title = "Top 10 most frequent bigrams for IMPROVED SOME group", x = "Bigram", y = "Support")
+
+ggplot(bigram2_dat[1:10,], aes(x=reorder(term, support), y = support, fill = reorder(term, support))) + 
+  geom_bar(stat = "identity") + 
+  coord_flip() +
+  theme(legend.position = "none") +
+  labs(title = "Top 10 most frequent bigrams for IMPROVED A LOT group", x = "Bigram", y = "Support")
+```
+
+
+### Sentiment Analysis
+
+```{r}
+my_sentiment <- hash_sentiment_jockers_rinker
+
+# Change polarity scores for the words in to_neutral to 0 .
+to_neutral <- c("ability", "academic", "problem", "critical", "curriculum", "disease", "issue",
+                "issues","problem","problems", "scientific", "skill", "solve", "solving")
+my_sentiment$y[my_sentiment$x %in% to_neutral] <- 0
+
+# Change polarity scores for the words in change_sign from negative to positive or 
+# from positive to negative.
+change_sign <- c("challenge", "challenging", "depth", "exposed", "force", "forced")
+my_sentiment$y[my_sentiment$x %in% change_sign] <- my_sentiment$y[my_sentiment$x %in% change_sign] *(-1)
+
+my_sentiment <- update_polarity_table(my_sentiment)
+```
+
+```{r}
+sentiment0_v <- rep(NA, length(dat0$q1))
+
+# calculate average sentiment score of each response in HAS NOT IMPROVED group
+for(i in 1:length(dat0$q1)){
+  sentiment0_v[i] <- sentiment_by(dat0$q1[i],polarity_dt = my_sentiment)$ave_sentiment
+}
+
+hist(sentiment0_v,  col = "cornflowerblue", 
+     main = "Sentiment Score Histogram for HAS NOT IMPROVED group", xlab = "Sentiment Score")
+```
+
+```{r}
+sentiment1_v <- rep(NA, length(dat1$q1))
+
+# calculate average sentiment score of each response in IMPROVED SOME group
+for(i in 1:length(dat1$q1)){
+  sentiment1_v[i] <- sentiment_by(dat1$q1[i],polarity_dt = my_sentiment)$ave_sentiment
+}
+
+hist(sentiment1_v, col = "cornflowerblue", 
+     main = "Sentiment Score Histogram for IMPROVED SOME Group", xlab = "Sentiment Score")
+```
+
+```{r}
+sentiment2_v <- rep(NA, length(dat2$q1))
+
+# calculate average sentiment score of each response in IMPROVED A LOT group
+for(i in 1:length(dat2$q1)){
+  sentiment2_v[i] <- sentiment_by(dat2$q1[i],polarity_dt = my_sentiment)$ave_sentiment
+}
+
+hist(sentiment2_v, col = "cornflowerblue", 
+     main = "Sentiment Score Histogram for IMPROVED A LOT Group", xlab = "Sentiment Score")
+```
+
+```{r}
+sentiment0_d <- data.frame(group = factor("HAS NOT IMPROVED"), value = sentiment0_v)
+sentiment1_d <- data.frame(group = factor("IMPROVED SOME"), value = sentiment1_v)
+sentiment2_d <- data.frame(group = factor("IMPROVED A LOT"), value = sentiment2_v)
+
+plot.data <- rbind(sentiment0_d, sentiment1_d, sentiment2_d)  
+
+ggplot(plot.data, aes(x=group, y=value, fill=group)) + 
+  geom_boxplot() +
+  labs(y = "Sentiment Score")
+```
+
+
+
+```{r, warning=F}
+set.seed(7)
+
+sentimentTerms0 <- extract_sentiment_terms(dat0$q1, polarity_dt = my_sentiment)
+sentiment_counts0 <- attributes(sentimentTerms0)$counts
+
+# word cloud for words with negative polarity score in HAS NOT IMPROVED group
+with( sentiment_counts0[polarity < 0,], 
+      wordcloud(words = words, freq = n, min.freq = 1, max.words = 100, random.order = FALSE, 
+                rot.per = 0.35, colors = brewer.pal(8, "Dark2")) )
+```
+
+```{r, warning=F}
+sentimentTerms1 <- extract_sentiment_terms(dat1$q1,polarity_dt = my_sentiment)
+sentiment_counts1 <- attributes(sentimentTerms1)$counts
+
+# word cloud for words with negative polarity score in IMPROVED SOME group
+with( sentiment_counts1[polarity < 0,], 
+      wordcloud(words = words, freq = n, min.freq = 1, max.words = 100, random.order = FALSE, 
+                rot.per = 0.35, colors = brewer.pal(8, "Dark2")) )
+```
+
+```{r, warning=F}
+sentimentTerms2 <- extract_sentiment_terms(dat2$q1,polarity_dt = my_sentiment)
+sentiment_counts2 <- attributes(sentimentTerms2)$counts
+
+# word cloud for words with negative polarity score in IMPROVED A LOT group
+with( sentiment_counts2[polarity < 0,], 
+      wordcloud(words = words, freq = n, min.freq = 1, max.words = 100, random.order = FALSE, 
+                rot.per = 0.35, colors = brewer.pal(8, "Dark2")) )
+```
+
+
+
+```{r, message=F}
+# stem positive and negative words
+getStemmedTable <- function(sentiment_counts,PorN){
+  if (PorN == "P" | PorN == TRUE){
+    tb <-  sentiment_counts[polarity > 0,]
+  }
+  else if (PorN == "N" | PorN == FALSE){
+    tb <- sentiment_counts[polarity < 0,]
+  }
+  stemmed <- SnowballC::wordStem(tb[[1]], language = 'en')
+  tb$stemmed <- stemmed
+  tbStemmed <- tb %>% group_by(stemmed) %>% mutate(count = sum(n)) %>% 
+    filter(!duplicated(stemmed)) %>% select(words,count)
+  tbStemmed
+}
+
+pos0 <- getStemmedTable(sentiment_counts0,T)
+pos1 <- getStemmedTable(sentiment_counts1,T)
+pos2 <- getStemmedTable(sentiment_counts2,T)
+neg0 <- getStemmedTable(sentiment_counts0,F)
+neg1 <- getStemmedTable(sentiment_counts1,F)
+neg2 <- getStemmedTable(sentiment_counts2,F)
+```
+
+```{r}
+# average number of positive and negative words in each response for each group
+poscompare <- c(sum(pos2$count)/nrow(dat2),sum(pos1$count)/nrow(dat1),sum(pos0$count)/nrow(dat0))
+negcompare <- c(sum(neg2$count)/nrow(dat2),sum(neg1$count)/nrow(dat1),sum(neg0$count)/nrow(dat0))
+comparedf <- as.data.frame(cbind(poscompare,negcompare))
+comparedf$group <- c('IMPROVED A LOT','IMPROVED SOME','HAS NOT IMPROVED')
+comparedf <- comparedf%>%gather('poscompare','negcompare',key = 'pn', value = 'words_count')
+ggplot(comparedf,aes(factor(group, levels=c('IMPROVED A LOT','IMPROVED SOME','HAS NOT IMPROVED')),words_count,fill = pn)) + 
+  geom_bar(stat="identity", position = "dodge") + 
+  ylab("Average Number of Words in Each Response") + 
+  xlab("Group") +
+  scale_fill_discrete(name = "Word Type", labels = c("Negative", "Positive"))
+```
+
+
+```{r}
+# compare positive and negative words across groups
+getCompareTable <- function(df0,df1,df2){
+  df0 <- df0 %>% mutate(percent = count/sum(df0$count)*100)
+  df1 <- df1 %>% mutate(percent = count/sum(df1$count)*100)
+  df2 <- df2 %>% mutate(percent = count/sum(df2$count)*100)
+  df0_tibble <- as_tibble(df0)
+  df1_tibble <- as_tibble(df1)
+  df2_tibble <- as_tibble(df2)
+  all_tibble <- full_join(full_join(df0_tibble,df1_tibble,by="stemmed"),df2_tibble,by="stemmed")
+  all_tibble
+  compare_pos <- all_tibble %>% select(stemmed,count.x,count.y,count)
+  compare_pos
+  compare_pos <- rename(compare_pos, NONE = count.x)
+  compare_pos <- rename(compare_pos, SOME = count.y)
+  compare_pos <- rename(compare_pos, ALOT = count)
+  
+  compare_pos
+}
+
+compare_neg <- getCompareTable(neg0,neg1,neg2)
+```
+
+```{r}
+# TF-IDF for negative words
+compare_neg_re <- compare_neg %>% gather('NONE','SOME','ALOT',key = "group", value = "count")
+compare_neg_re$count <- ifelse(is.na(compare_neg_re$count),0,compare_neg_re$count)
+compare_neg_re <- compare_neg_re %>% filter(count!=0)
+compare_neg_re_tfidf <- compare_neg_re %>% bind_tf_idf(stemmed, group, count)
+
+ALOTtf_idf <- compare_neg_re_tfidf[order(-compare_neg_re_tfidf$tf_idf),] %>% filter(group == 'ALOT')
+SOMEtf_idf <- compare_neg_re_tfidf[order(-compare_neg_re_tfidf$tf_idf),] %>% filter(group == 'SOME')
+NONEtf_idf <- compare_neg_re_tfidf[order(-compare_neg_re_tfidf$tf_idf),] %>% filter(group == 'NONE')
+
+compare_neg_re_tfidf  %>% 
+  mutate(group = factor(group,levels = c("NONE","SOME","ALOT"))) %>% 
+  group_by(group) %>% 
+  arrange(desc(tf_idf)) %>% 
+  slice(1:20) %>%  
+  ungroup() %>%  
+  mutate(stemmed = reorder(stemmed, tf_idf)) %>% 
+  ggplot(aes(tf_idf, stemmed, fill = group)) +
+  geom_col(show.legend = FALSE) +
+  labs(x = "" , y = "") +
+  facet_wrap(~group, ncol = 3, scales = "free")
+```
+
+
+```{r}
+# Extract quotes using keywords
+
+# dat0$q1[grep("stress", dat0$q1)]
+# dat0$q1[grep("disconnect", dat0$q1)]
+# dat0$q1[grep("disorg", dat0$q1)]
+# dat0$q1[grep("busy", dat0$q1)]
+# 
+# dat0$q1[grep("difficult", dat0$q1)]
+# dat1$q1[grep("difficult", dat1$q1)]
+# dat2$q1[grep("difficult", dat2$q1)]
+```
+
+
+### Emotion Analysis
+
+```{r}
+emotion0 <- emotion_by(dat0$q1)
+
+# sum the counts of each emotion type
+emotion0_d <- aggregate(emotion0$emotion_count, by = list(emotion_type = emotion0$emotion_type), FUN = sum)
+
+emotion0_d <- emotion0_d %>% rename(emotion_count = x)
+emotion0_d$emotion_rate = emotion0_d$emotion_count / sum(emotion0$emotion_count)
+```
+
+```{r}
+emotion1 <- emotion_by(dat1$q1)
+
+# sum the counts of each emotion type
+emotion1_d <- aggregate(emotion1$emotion_count, by = list(emotion_type = emotion1$emotion_type), FUN = sum)
+
+emotion1_d <- emotion1_d %>% rename(emotion_count = x)
+emotion1_d$emotion_rate = emotion1_d$emotion_count / sum(emotion1$emotion_count)
+```
+
+```{r}
+emotion2 <- emotion_by(dat2$q1)
+
+# sum the counts of each emotion type
+emotion2_d <- aggregate(emotion2$emotion_count, by = list(emotion_type = emotion2$emotion_type), FUN = sum)
+
+emotion2_d <- emotion2_d %>% rename(emotion_count = x)
+emotion2_d$emotion_rate = emotion2_d$emotion_count / sum(emotion2$emotion_count)
+```
+
+```{r}
+emotion0_d <- data.frame(emotion0_d, group = factor("HAS NOT IMPROVED"))
+emotion1_d <- data.frame(emotion1_d, group = factor("IMPROVED SOME"))
+emotion2_d <- data.frame(emotion2_d, group = factor("IMPROVED A LOT"))
+
+emotion_d <- rbind(emotion0_d, emotion1_d, emotion2_d)
+
+# Grouped barchart
+ggplot(emotion_d, aes(x=reorder(emotion_type, emotion_rate), y=emotion_rate, fill=group)) +
+  geom_bar(position="dodge", stat="identity") +
+  coord_flip() +
+  labs(title = "Emotion Types for Each Group", x = "Emotion Type", y = "Rate")
+```
+
+```{r}
+# Percent stacked barchart
+ggplot(emotion_d, aes(x=reorder(emotion_type, emotion_rate), y=emotion_rate, fill=group)) +
+  geom_bar(position="fill", stat="identity") +
+  coord_flip() +
+  labs(title = "Emotion Types for Each Group", x = "Emotion Type", y = "Percent") +
+  scale_y_continuous(labels = scales::percent) 
+```
+
+
